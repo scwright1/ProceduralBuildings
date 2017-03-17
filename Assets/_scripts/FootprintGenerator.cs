@@ -4,13 +4,40 @@ using UnityEngine;
 
 public class FootprintGenerator : MonoBehaviour {
 
+    public enum Type {
+        Corner,
+        Straight
+    }
+
+    public enum Style {
+        Chamfered,
+        RightAngled
+    }
+
+    //block class (each building block of the building)
+    public class BuildingBlock {
+        public Type blockType;
+        public Vector2 footprintPosition;
+        public bool decorated;
+
+        public BuildingBlock(Type block, Vector2 pos, bool hasProp) {
+            blockType = block;
+            footprintPosition = pos;
+            decorated = hasProp;
+        }
+
+        public Vector2 getPosition() { return footprintPosition; }
+
+        public Type getType() { return blockType; }
+    }
+
     //this is the maximum size the building footprint can possibly be
     [Range(1,9)]
     public int maxDepth = 1;
     [Range(1,9)]
     public int maxWidth = 1;
 
-    private bool[][] footprintArray;
+    private BuildingBlock[][] footprintArray;
 
     private float baseOffset = 0.5f;
 
@@ -27,7 +54,7 @@ public class FootprintGenerator : MonoBehaviour {
     public BuildingStyle style;
 
     void Start() {
-        footprintArray = new bool[maxDepth][];
+        footprintArray = new BuildingBlock[maxDepth][];
         offsetX = 0 - (maxWidth / 2);
         offsetZ = 0 - (maxDepth / 2);
         root = transform.gameObject;
@@ -44,7 +71,7 @@ public class FootprintGenerator : MonoBehaviour {
         for (int height = 0; height < Random.Range(5, 9); height++) {
             for (int i = 0; i < maxDepth; i++) {
                 for (int j = 0; j < maxWidth; j++) {
-                    if (footprintArray[i][j]) {
+                    if (footprintArray[i][j] != null) {
                         AddBlock(j, i, height);
                     }
                 }
@@ -85,9 +112,12 @@ public class FootprintGenerator : MonoBehaviour {
          **/
 
         //build the back row
-        footprintArray[0] = new bool[maxWidth];
+        footprintArray[0] = new BuildingBlock[maxWidth];
         for (int i = 0; i < maxWidth; i++) {
-            footprintArray[0][i] = (Random.value > 0.5f);
+            bool set = (Random.value > 0.5f);
+            if(set) {
+                footprintArray[0][i] = new BuildingBlock(Type.Straight, new Vector2(0, i), false);
+            }
         }
 
         //we've built the back row, now we can fill in the middle rows
@@ -95,16 +125,18 @@ public class FootprintGenerator : MonoBehaviour {
         //if the cell directly above has a value, and doesn't have a partner, then this one must be true
         for (int row = 1; row < maxDepth; row++) {
             //create the next row and drop into it for processing
-            footprintArray[row] = new bool[maxWidth];
+            footprintArray[row] = new BuildingBlock[maxWidth];
             for (int col = 0; col < maxWidth; col++) {
                 //for each cell, check the cell above it first to see if we must be true, otherwise randomly assign
                 bool siblingHasConnections = CheckSiblingConnections(row - 1, col);
                 if (siblingHasConnections) {
                     //we can set this to a random value
-                    footprintArray[row][col] = (Random.value > 0.5f);
+                    if(Random.value > 0.5f) {
+                        footprintArray[row][col] = new BuildingBlock(Type.Straight, new Vector2(row, col), false);
+                    }
                 } else {
                     //this cell must be true so we don't break the rules
-                    footprintArray[row][col] = true;
+                    footprintArray[row][col] = new BuildingBlock(Type.Straight, new Vector2(row, col), false);
                 }
             }
         }
@@ -114,18 +146,17 @@ public class FootprintGenerator : MonoBehaviour {
         InitializeFootprintArray();
         if(style == BuildingStyle.Symmetrical) {
             //do the front of the building
-            GenerateFootprintFront();
-            FillRow(1);
+            GenerateFootprintRow(0);
         }
     }
 
     private void InitializeFootprintArray() {
         for(int i = 0; i < maxDepth; i++) {
-            footprintArray[i] = new bool[maxWidth];
+            footprintArray[i] = new BuildingBlock[maxWidth];
         }
     }
 
-    private void GenerateFootprintFront() {
+    private void GenerateFootprintRow(int row) {
         switch(style) {
             case BuildingStyle.Quirky: {
                     break;
@@ -133,8 +164,7 @@ public class FootprintGenerator : MonoBehaviour {
             case BuildingStyle.Symmetrical: {
                     //determine whether we're splitting evenly
                     int midPoint;
-                    bool even;
-                    bool value;
+                    bool even, value, fill = false;
                     if(maxWidth % 2 == 0) {
                         midPoint = maxWidth / 2;
                         even = true;
@@ -142,20 +172,29 @@ public class FootprintGenerator : MonoBehaviour {
                         midPoint = (maxWidth - 1) / 2;
                         even = false;
                     }
-
                     //for each value on the left, set the corresponding value on the right
-                    for(int i = 0; i < midPoint; i++) {
-                        if(i == 0) {
+                    for (int i = 0; i < midPoint; i++) {
+                        if (i == 0) {
                             value = (Random.value > 0.5f);
                         } else {
-                            value = CheckAndAssign(0, i);
+                            value = CheckAndAssign(row, i);
                         }
-                        footprintArray[0][i] = value;
-                        footprintArray[0][maxWidth - (i + 1)] = value;
+                        if (value && !fill) { fill = true; }
+                        if (value) {
+                            footprintArray[row][i] = new BuildingBlock(Type.Straight, new Vector2(row, i), false);
+                            footprintArray[row][maxWidth - (i + 1)] = new BuildingBlock(Type.Straight, new Vector2(row, (maxWidth - (i+1))), false);
+                        }
                     }
                     //handle middle blocks in odd width cases
-                    if(!even) {
-                        footprintArray[0][midPoint] = footprintArray[0][midPoint-1];
+                    if (!even) {
+                        footprintArray[row][midPoint] = footprintArray[row][midPoint - 1];
+                    }
+
+                    //handle cases where we don't fill anything in on the first row (in which case, just fill in the first row)
+                    if (!fill) {
+                        for (int i = 0; i < footprintArray[row].Length; i++) {
+                            footprintArray[row][i] = new BuildingBlock(Type.Straight, new Vector2(row, i), false);
+                        }
                     }
                     break;
                 }
@@ -166,15 +205,18 @@ public class FootprintGenerator : MonoBehaviour {
     }
 
     private bool CheckAndAssign(int row, int cell) {
+        bool lastSibling = false;
         if(row == 0) {
             //row zero, only check horizontally
-            bool lastSibling = footprintArray[row][cell - 1];
+            if(footprintArray[row][cell-1] != null) {
+                lastSibling = true;
+            }
             if (cell > 1) {
                 //check 2 cells
                 if (lastSibling) {
                     //the last cell was set true, if the one before that was also set true, set this to whatever
-                    bool secondSibling = footprintArray[row][cell - 2];
-                    if (secondSibling) {
+                    //bool secondSibling = footprintArray[row][cell - 2];
+                    if (footprintArray[row][cell-2] != null) {
                         //the second sibling was also set to true, so this satisfies the logic that there must always be 2 contiguous blocks
                         //therefore, we can set this to whatever
                         return (Random.value > 0.5f);
@@ -193,15 +235,22 @@ public class FootprintGenerator : MonoBehaviour {
                 return (Random.value > 0.5f);
             }
         } else {
-            //we have some other logic for different rows (as we have to check vertically as well
+            //we have some other logic for different rows (as we have to check vertically as well)
+
             return false;
         }
     }
 
     private void FillRow(int row) {
         for(int i = 0; i < maxWidth; i++) {
-            if(!footprintArray[row-1][i]) {
-                footprintArray[row][i] = true;
+
+            if (i == 0 || i == maxWidth - 1) {
+                //at the moment, this should always be filled in to make the building wall
+                footprintArray[row][i] = new BuildingBlock(Type.Straight, new Vector2(row, i), false);
+            } else {
+                if (footprintArray[row - 1][i] == null) {
+                    footprintArray[row][i] = new BuildingBlock(Type.Straight, new Vector2(row,i), false);
+                }
             }
         }
     }
@@ -209,21 +258,24 @@ public class FootprintGenerator : MonoBehaviour {
     private bool CheckSiblingConnections(int x, int y) {
 
         //get the cell immediately above this one
-        bool cellIsSet = footprintArray[x][y];
+        bool cellIsSet = false;
+        if(footprintArray[x][y] != null) {
+            cellIsSet = true;
+        }
 
         if (cellIsSet) {
             //if the cell is on the edge, then it must have a sibling above
             if (y == 0 || y == maxWidth - 1) {
                 //if this isn't the top row
                 if(x > 0) {
-                    if (footprintArray[x - 1][y]) {
+                    if (footprintArray[x - 1][y] != null) {
                         //this cell has an active connection above, so we can set true and don't need to fill the new cell
                         return true;
                     }
                 }
             } else {
                 //we must set false if there are siblings either side (otherwise we end up with a disconnected wall)
-                if (footprintArray[x][y - 1] || footprintArray[x][y + 1]) {
+                if ((footprintArray[x][y - 1] != null) || (footprintArray[x][y + 1] != null)) {
                     return false;
                 }
             }
